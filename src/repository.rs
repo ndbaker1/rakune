@@ -1,57 +1,59 @@
 use std::fs::File;
-use std::io::Read;
 use std::io::Write;
 use std::process::Command;
 
-use crate::llm::LLM;
-use crate::DataSource;
+use regex::Regex;
+
 use crate::Diff;
 use crate::Result;
-use crate::Step;
 
-#[derive(Clone)]
-pub struct GitRepository {
-    /// If the revisions is `None`, then we are at HEAD, else the sha hash of the revision will be
-    /// stored in the option.
-    revision: Option<String>,
-}
-
-impl Default for GitRepository {
-    fn default() -> Self {
-        Self { revision: None }
-    }
-}
+#[derive(Clone, Default)]
+pub struct GitRepository;
 
 impl GitRepository {
     /// Edit the state of a respository using a given agent capability
     pub fn transform(&mut self, transformation: &Transformation) -> Result<()> {
         Ok(match transformation {
             Transformation::UpdateFragment {
-                filepath,
-                line_range,
-                content,
+                fragment,
+                updated_lines,
             } => {
-                let mut file = File::open(filepath)?;
+                let content = fragment.read_file()?;
+                let mut lines = content.lines().collect::<Vec<_>>();
 
-                let mut contents = String::new();
-                file.read_to_string(&mut contents)?;
+                if [fragment.line_range.0, fragment.line_range.1]
+                    .iter()
+                    .any(|r| !(0..=lines.len()).contains(r))
+                {
+                    let error_message = format!(
+                        "One of the line ranges {:?} was not in bound of the file [0..{}].",
+                        fragment.line_range,
+                        lines.len(),
+                    );
+                    return Err(error_message.into());
+                }
 
-                let mut lines: Vec<_> = contents.lines().collect();
-                lines.splice(line_range.0..line_range.1, content.into_iter().cloned());
+                lines.splice(
+                    fragment.line_range.0..fragment.line_range.1,
+                    updated_lines.into_iter().map(String::as_str),
+                );
+
+                let mut file = File::options()
+                    .write(true)
+                    .create(true)
+                    .truncate(true)
+                    .open(&fragment.filepath)?;
+
                 file.write_all(&lines.join("\n").as_bytes())?;
             }
             _ => unreachable!(),
         })
     }
 
-    pub fn diff(&self, target: Option<&Self>) -> Result<Diff> {
+    pub fn diff(&self, target: Option<&String>) -> Result<Diff> {
         let mut command = Command::new("git");
         let command = match target {
-            Some(other) => command.args(&[
-                "diff",
-                &self.revision.clone().unwrap(),
-                &other.revision.clone().unwrap(),
-            ]),
+            Some(other) => command.args(&["diff", other]),
             None => command.args(&["diff"]),
         };
 
@@ -70,49 +72,84 @@ impl GitRepository {
         Ok(commit_revision)
     }
 
-    /// Builds the repository and returns an optional string of the build output if the build was
-    /// not successful, else do not return anything
-    pub fn build(&mut self) -> Result<Option<String>> {
-        let output = Command::new("cargo").args(&["test"]).output()?;
-
-        if let Some(code) = output.status.code() {
-            if code == 0 {
-                return Ok(None);
-            }
-        }
-
-        let output = std::str::from_utf8(&output.stdout)?.to_string();
-
-        Ok(Some(output))
-    }
-
     /// Searches through git or conversation history for context on a particular code fragment
-    pub fn temporal_context() {
-        unimplemented!()
+    ///
+    /// X change built from Y context worked for scenario Z, and scenario A is similar to
+    /// scenario Z, so it should also read Y context.
+    pub fn temporal_context(&self, _fragment: &Fragment) -> Result<Vec<String>> {
+        Ok(Vec::new())
     }
 
     /// Searches through symbolic, lexical, or etc information on a particular code fragment
-    pub fn spatial_context() {
-        unimplemented!()
+    /// such as callee/caller functions, classes, etc..
+    #[allow(unreachable_code)]
+    pub fn spatial_context(&self, fragment: &Fragment) -> Result<Vec<String>> {
+        let context = vec![format!(
+            "The existing lines of code are:\n{}",
+            fragment.read_lines()?
+        )];
+
+        return Ok(context);
+
+        use tree_sitter::Parser;
+        let mut parser = Parser::new();
+        parser
+            .set_language(tree_sitter_rust::language())
+            .expect("Error loading Rust grammar");
+
+        let source_code = fragment.read_file()?;
+
+        let tree = parser
+            .parse(source_code, None)
+            .expect("Failed to parse tree.");
+        let _root_node = tree.root_node();
+
+        Ok(Vec::new())
+    }
+}
+
+#[cfg(debug_assertions)]
+#[derive(Debug)]
+pub struct Fragment {
+    pub filepath: String,
+    pub line_range: LineRange,
+}
+
+impl Fragment {
+    pub fn read_file(&self) -> Result<String> {
+        Ok(std::fs::read_to_string(&self.filepath)?)
+    }
+
+    pub fn read_lines(&self) -> Result<String> {
+        let content = self.read_file()?;
+        let lines = content.lines().collect::<Vec<_>>();
+
+        if [self.line_range.0, self.line_range.1]
+            .iter()
+            .any(|r| !(0..=lines.len()).contains(r))
+        {
+            let error_message = format!(
+                "One of the line ranges {:?} was not in bound of the file [0..{}].",
+                self.line_range,
+                lines.len(),
+            );
+            return Err(error_message.into());
+        }
+
+        Ok(lines[self.line_range.0..self.line_range.1].join(""))
     }
 }
 
 type LineRange = (usize, usize);
 
-struct RepositoryPrompt {
-    comment: String,
-    fragments: Vec<LineRange>,
+#[cfg(debug_assertions)]
+#[derive(Debug)]
+pub struct Comment {
+    pub message: String,
+    pub fragments: Vec<Fragment>,
 }
 
-impl DataSource<Query, QueryResponse> for GitRepository {
-    fn query(&self, query: &Query) -> Result<QueryResponse> {
-        Ok(match query {
-            Query::None => QueryResponse::None,
-        })
-    }
-}
-
-pub enum Transformation<'s> {
+pub enum Transformation {
     RenameSymbol {
         old: String,
         new: String,
@@ -128,65 +165,38 @@ pub enum Transformation<'s> {
         new: String,
     },
     UpdateFragment {
-        filepath: String,
-        line_range: LineRange,
-        content: &'s [&'s str],
+        fragment: Fragment,
+        updated_lines: Vec<String>,
+    },
+    InsertFragment {
+        line_no: usize,
+        content: Vec<String>,
     },
 }
+impl TryFrom<&str> for Transformation {
+    type Error = String;
 
-enum Feedback {
-    Fragment,
-    Guidance,
-    Holistic,
-}
+    fn try_from(value: &str) -> std::result::Result<Self, Self::Error> {
+        let re = Regex::new(
+            "filepath: \"?(.*?)\"?,?\n.*start_line: (\\d+),?\n.*end_line: (\\d+),?\n.*content: ([\\s\\S]*)",
+        )
+        .expect("Regex failed to compile.");
 
-enum Query {
-    None,
-}
+        let transformation = re
+            .captures_iter(value)
+            .map(|c| c.extract())
+            .map(
+                |(_, [filepath, start, end, content])| Self::UpdateFragment {
+                    fragment: Fragment {
+                        filepath: filepath.into(),
+                        line_range: (start.parse().unwrap(), end.parse().unwrap()),
+                    },
+                    updated_lines: content.lines().map(|s| s.to_string()).collect(),
+                },
+            )
+            .next()
+            .ok_or_else(|| "failed to parse transformation".into());
 
-enum QueryResponse {
-    None,
-}
-
-/// performs the actions to edit the code in the repository
-pub struct Coder<M: LLM> {
-    // memory_context: (),
-    pub transformation_count: usize,
-    pub llm: M,
-}
-impl<T: LLM> Coder<T> {
-    pub fn prompt(&self, prompt: &str) -> Result<String> {
-        self.llm.prompt(&prompt)
-    }
-
-    pub fn generate_transformations(&self, step: &Step) -> Result<Vec<Transformation>> {
-        let prompt = format!(
-            r#"for the following request, provide an answer in the format:
-
-        UpdateFragment:
-            filepath: string
-            start_line: integer
-            end_line: integer
-            content: string
-
-        Here is the request to generate answers for:
-
-        {}"#,
-            step
-        );
-
-        let _answer = self.prompt(&prompt)?;
-
-        Ok(vec![])
-    }
-}
-
-type Validation = ();
-
-/// compiles and runs the code to give feedback to the coding agent
-struct Tester;
-impl Tester {
-    fn generate_validations(&self, _diff: &Diff) -> Vec<Validation> {
-        unimplemented!()
+        transformation
     }
 }

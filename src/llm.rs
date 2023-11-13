@@ -9,10 +9,7 @@ pub trait LLM {
 
 #[derive(Deserialize)]
 struct OllamaResponse {
-    model: String,
-    created_at: String,
     response: String,
-    done: bool,
 }
 
 #[derive(Serialize)]
@@ -31,24 +28,34 @@ impl LLM for Ollama<'_> {
     fn prompt(&self, prompt: &str) -> Result<String, Box<dyn Error>> {
         let client = reqwest::blocking::Client::new();
 
-        let request_body = serde_json::to_string(&OllamaRequest {
+        let ollama_request = &OllamaRequest {
             prompt: prompt.to_string(),
             model: self.model.to_string(),
             stream: false,
             context: &[],
-        })?;
+        };
+
+        #[cfg(debug_assertions)]
+        eprintln!(
+            "*************** Payload **************\n{:#}\n",
+            ollama_request.prompt
+        );
 
         let response = client
             .post(self.endpoint)
-            .body(request_body)
+            .body(serde_json::to_string(ollama_request)?)
             .send()?
             .text()?;
 
         let response = serde_json::from_str::<OllamaResponse>(&response)?;
 
         #[cfg(debug_assertions)]
-        eprintln!("*****************************\n{:#}\n", response.response);
+        eprintln!(
+            "*************** Response **************\n{:#}\n",
+            response.response
+        );
 
         Ok(response.response.to_string())
     }
 }
+

@@ -3,10 +3,16 @@ name = "rakune"
 version = "0.1.0"
 edition = "2021"
 
+[build-dependencies]
+cc="*"
+
 [dependencies]
 async-trait = "0.1.74"
 futures = "0.3.29"
+regex = "1.10.2"
 reqwest = { version = "0.11.22", features = ["blocking"] }
 serde = { version = "1.0.192", features = ["derive"] }
 serde_json = "1.0.108"
+tree-sitter = "0.20.10"
+tree-sitter-rust = "0.20.3"
 use = "0.0.0"

@@ -1,6 +1,7 @@
 use std::error::Error;
 use std::result::Result as Res;
 
+mod test;
 pub mod llm;
 pub mod repository;
 
@@ -28,3 +29,4 @@ pub trait Planner {
 pub trait DataSource<Q, A> {
     fn query(&self, query: &Q) -> Result<A>;
 }
+
