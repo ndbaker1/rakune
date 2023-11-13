@@ -1,6 +1,6 @@
 use std::error::Error;
 
-use ai_agents::{
+use rakune::{
     llm::Ollama,
     repository::{Coder, GitRepository},
 };

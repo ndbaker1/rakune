@@ -1,5 +1,5 @@
 [package]
-name = "ai-agents"
+name = "rakune"
 version = "0.1.0"
 edition = "2021"
 
