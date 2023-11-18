@@ -1,7 +1,6 @@
 use std::error::Error;
 use std::result::Result as Res;
 
-mod test;
 pub mod llm;
 pub mod repository;
 

@@ -1,5 +1,5 @@
 use regex::Regex;
-use std::{env::args, error::Error, process::Command};
+use std::{env::args, error::Error, process::Command,};
 
 use rakune::{
     llm::{Ollama, LLM},
