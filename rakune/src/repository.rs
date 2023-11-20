@@ -85,7 +85,7 @@ impl GitRepository {
     #[allow(unreachable_code)]
     pub fn spatial_context(&self, fragment: &Fragment) -> Result<Vec<String>> {
         let context = vec![format!(
-            "The existing lines of code are:\n{}\n>>>>\n{}\n<<<<",
+            "The existing lines of code are:\n\n{}\n>>>>\n{}\n<<<<",
             fragment.filepath,
             fragment
                 .read_lines()?

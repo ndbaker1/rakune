@@ -14,18 +14,30 @@ fn detect_language() -> String {
     "Rust".to_string()
 }
 
-struct RustBuilder<const N: usize> {
+struct RustBuilder<'a> {
     /// Command arguments to run in order to build the project
-    command: [&'static str; N],
+    build_args: &'a [&'a str],
+    lint_args: &'a [&'a str],
 }
-impl<const N: usize> RustBuilder<N> {
+impl RustBuilder<'_> {
     /// Builds the repository and returns an optional string of the build output if the build was
     /// not successful, else do not return anything
     fn build(&self, _: &GitRepository) -> Result<(), Vec<Comment>> {
-        let output = Command::new(self.command[0])
-            .args(&self.command[1..])
+        Command::new(self.lint_args[0])
+            .args(&self.lint_args[1..])
             .output()
-            .expect(&format!("failed to call build command {:?}", self.command));
+            .expect(&format!(
+                "failed to execute lint command {:?}",
+                self.lint_args
+            ));
+
+        let output = Command::new(self.build_args[0])
+            .args(&self.build_args[1..])
+            .output()
+            .expect(&format!(
+                "failed to call build command {:?}",
+                self.build_args
+            ));
 
         if let Some(code) = output.status.code() {
             if code == 0 {
@@ -174,7 +186,8 @@ fn main() -> Res<()> {
 
     let repo = GitRepository::default();
     let builder = RustBuilder {
-        command: ["cargo", "build"],
+        build_args: &["cargo", "build"],
+        lint_args: &["cargo", "fmt"],
     };
     let ollama = Ollama {
         model: "codellama:7b-instruct",
