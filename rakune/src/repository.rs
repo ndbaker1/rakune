@@ -34,7 +34,7 @@ impl GitRepository {
                 }
 
                 lines.splice(
-                    fragment.line_range.0..fragment.line_range.1,
+                    fragment.line_range.0..=fragment.line_range.1,
                     updated_lines.into_iter().map(String::as_str),
                 );
 
@@ -85,8 +85,16 @@ impl GitRepository {
     #[allow(unreachable_code)]
     pub fn spatial_context(&self, fragment: &Fragment) -> Result<Vec<String>> {
         let context = vec![format!(
-            "The existing lines of code are:\n{}",
-            fragment.read_lines()?
+            "The existing lines of code are:\n{}\n>>>>\n{}\n<<<<",
+            fragment.filepath,
+            fragment
+                .read_lines()?
+                .lines()
+                .into_iter()
+                .enumerate()
+                .map(|(i, s)| format!("{i} {s}"))
+                .collect::<Vec<_>>()
+                .join("\n"),
         )];
 
         return Ok(context);
@@ -108,7 +116,6 @@ impl GitRepository {
     }
 }
 
-#[cfg(debug_assertions)]
 #[derive(Debug)]
 pub struct Fragment {
     pub filepath: String,
@@ -136,13 +143,12 @@ impl Fragment {
             return Err(error_message.into());
         }
 
-        Ok(lines[self.line_range.0..self.line_range.1].join(""))
+        Ok(lines[self.line_range.0..self.line_range.1].join("\n"))
     }
 }
 
 type LineRange = (usize, usize);
 
-#[cfg(debug_assertions)]
 #[derive(Debug)]
 pub struct Comment {
     pub message: String,
@@ -178,22 +184,26 @@ impl TryFrom<&str> for Transformation {
 
     fn try_from(value: &str) -> std::result::Result<Self, Self::Error> {
         let re = Regex::new(
-            "filepath: \"?(.*?)\"?,?\n.*start_line: (\\d+),?\n.*end_line: (\\d+),?\n.*content: ([\\s\\S]*)",
+            "filepath: (.*?),?\n.*start_line: (\\d+),?\n.*end_line: (\\d+),?\n.*content: ([\\s\\S]*)```",
         )
         .expect("Regex failed to compile.");
 
         let transformation = re
             .captures_iter(value)
             .map(|c| c.extract())
-            .map(
-                |(_, [filepath, start, end, content])| Self::UpdateFragment {
+            .map(|(_, [filepath, start, end, content])| {
+                let start_line = start.parse().unwrap();
+                let end_line = end.parse().unwrap();
+                let updated_lines = content.lines().map(|s| s.to_string()).collect();
+
+                Self::UpdateFragment {
                     fragment: Fragment {
                         filepath: filepath.into(),
-                        line_range: (start.parse().unwrap(), end.parse().unwrap()),
+                        line_range: (start_line, end_line),
                     },
-                    updated_lines: content.lines().map(|s| s.to_string()).collect(),
-                },
-            )
+                    updated_lines,
+                }
+            })
             .next()
             .ok_or_else(|| "failed to parse transformation".into());
 

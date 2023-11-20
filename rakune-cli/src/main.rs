@@ -1,5 +1,7 @@
 use regex::Regex;
-use std::{env::args, error::Error, process::Command,};
+use std::{env::args, error::Error, process::Command};
+
+mod test;
 
 use rakune::{
     llm::{Ollama, LLM},
@@ -33,8 +35,8 @@ impl<const N: usize> RustBuilder<N> {
 
         let output = std::str::from_utf8(&output.stderr).expect("failed to read stderr");
 
-        let file_regex =
-            Regex::new("error: (.*?)\n --> (.*?):(\\d+):(\\d+)").expect("Regex failed to compile.");
+        let file_regex = Regex::new("error: ([\\s\\S]*?)\n --> (.*?):(\\d+):(\\d+)")
+            .expect("Regex failed to compile.");
 
         let errors = file_regex
             .captures_iter(output)
@@ -124,7 +126,7 @@ struct Prompter;
 impl Prompter {
     fn template_code(p: &str) -> String {
         format!(
-            "You are a {} programmer. {}
+            r#"You are a {} programmer. {}
 
 Please use the following template to describe where to update the code:
 
@@ -136,7 +138,18 @@ UpdateFragment:
     content: the code the replace within the lines (string)
 ```
 
-Do NOT provide any extra content beyond this template.",
+Do NOT provide any extra content beyond this template.
+
+## Here is an example:
+
+```
+UpdateFragment:
+    filepath: src/hello.rs
+    start_line: 2
+    end_line: 2
+    content: println!("hello world!")
+```
+"#,
             detect_language(),
             p
         )
@@ -155,7 +168,7 @@ fn main() -> Res<()> {
         message: args[1].clone(),
         fragments: vec![Fragment {
             filepath: "src/test.rs".to_string(),
-            line_range: (0, 1),
+            line_range: (0, 5),
         }],
     }];
 
