@@ -93,7 +93,7 @@ impl<T: LLM> Coder<T> {
         let mut prompt = Prompter::template_code(&comment.message);
 
         if let Some(fragment) = comment.fragments.get(0) {
-            prompt += "\n---\n";
+            prompt += "\n### Here is the current context:\n";
 
             let _temporal_context = self.repository.temporal_context(&fragment)?;
             let spatial_context = self.repository.spatial_context(&fragment)?;
@@ -109,12 +109,16 @@ impl<T: LLM> Coder<T> {
             }
         }
 
-        let answer = self.prompt(&prompt)?;
-
         // TODO: jump from answer to transformations
         // use the answer to construct a sequence of transformations
 
-        let transformations = vec![Transformation::try_from(answer.as_str())?];
+        let mut transformations = Vec::new();
+        while transformations.is_empty() {
+            let answer = self.prompt(&prompt)?;
+            transformations = Transformation::parse_from(answer.as_str())?;
+        }
+
+        assert!(!transformations.is_empty());
 
         transformations
             .iter()
@@ -152,14 +156,41 @@ UpdateFragment:
 
 Do NOT provide any extra content beyond this template.
 
-## Here is an example:
+## Here are a couple of examples:
+
+Update the function foo to print "hello!"
+
+>>>>
+0 fn foo() {{
+1     println!("chili dogs")
+2 }}
+<<<<
 
 ```
 UpdateFragment:
     filepath: src/hello.rs
-    start_line: 2
+    start_line: 1
+    end_line: 1
+    content: println!("hello!")
+```
+
+---
+
+Remove the uneeded code in add_5().
+
+>>>>
+0 fn add_5(x: u8) -> u8 {{
+1   let ans = x + 5;
+2   return ans;
+3 }}
+<<<<
+
+```
+UpdateFragment:
+    filepath: src/addition.rs
+    start_line: 1
     end_line: 2
-    content: println!("hello world!")
+    content: return x + 5;
 ```
 "#,
             detect_language(),
@@ -180,7 +211,7 @@ fn main() -> Res<()> {
         message: args[1].clone(),
         fragments: vec![Fragment {
             filepath: "src/test.rs".to_string(),
-            line_range: (0, 5),
+            line_range: (0, 6),
         }],
     }];
 

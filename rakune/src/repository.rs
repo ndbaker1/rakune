@@ -143,7 +143,7 @@ impl Fragment {
             return Err(error_message.into());
         }
 
-        Ok(lines[self.line_range.0..self.line_range.1].join("\n"))
+        Ok(lines[self.line_range.0..=self.line_range.1].join("\n"))
     }
 }
 
@@ -179,34 +179,30 @@ pub enum Transformation {
         content: Vec<String>,
     },
 }
-impl TryFrom<&str> for Transformation {
-    type Error = String;
 
-    fn try_from(value: &str) -> std::result::Result<Self, Self::Error> {
+impl Transformation {
+    pub fn parse_from(value: &str) -> std::result::Result<Vec<Self>, &'static str> {
         let re = Regex::new(
-            "filepath: (.*?),?\n.*start_line: (\\d+),?\n.*end_line: (\\d+),?\n.*content: ([\\s\\S]*)```",
+            "filepath: (.*?),?\n.*start_line: (\\d+),?\n.*end_line: (\\d+),?\n.*content: ([\\s\\S]*?)```",
         )
         .expect("Regex failed to compile.");
 
-        let transformation = re
+        Ok(re
             .captures_iter(value)
             .map(|c| c.extract())
-            .map(|(_, [filepath, start, end, content])| {
+            .filter_map(|(_, [filepath, start, end, content])| {
                 let start_line = start.parse().unwrap();
                 let end_line = end.parse().unwrap();
                 let updated_lines = content.lines().map(|s| s.to_string()).collect();
 
-                Self::UpdateFragment {
+                Some(Self::UpdateFragment {
                     fragment: Fragment {
                         filepath: filepath.into(),
                         line_range: (start_line, end_line),
                     },
                     updated_lines,
-                }
+                })
             })
-            .next()
-            .ok_or_else(|| "failed to parse transformation".into());
-
-        transformation
+            .collect())
     }
 }
